@@ -2,19 +2,20 @@ require('dotenv').config();
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
-const { Client } = require("pg");
+const { Pool, Client } = require("pg");
 const cors = require("cors");
 const fs = require("fs");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Setup CORS to allow cross-origin requests from the frontend
 app.use(cors({
   origin: [
     process.env.FRONTEND_URL, 
     "http://localhost:3001",
-    "http://127.0.0.1:5502",  // frontend origin
-    "http://localhost:5502"    // Common alternative
+    "http://127.0.0.1:5502",  
+    "http://localhost:5502"    
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -24,15 +25,14 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-
+// Setup the uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-
 const uploadDir = path.join(__dirname, "uploads");
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+// PostgreSQL client setup for the backend server
 const client = new Client({
   user: process.env.DB_USER || 'postgres',
   host: process.env.DB_HOST || 'localhost',
@@ -41,11 +41,20 @@ const client = new Client({
   port: process.env.DB_PORT || 5432,
 });
 
+// PostgreSQL pool setup for the frontend server
+const pool = new Pool({
+  user: "postgres",
+  host: "localhost",
+  database: "new_employee_db",
+  password: "Password@12345",
+  port: 5432,
+});
+
+// Connect to PostgreSQL for the backend API
 const connectToDatabase = async () => {
   try {
     await client.connect();
     console.log("Connected to PostgreSQL database");
-    
     await client.query(`
       CREATE TABLE IF NOT EXISTS emp_onboarding (
         id SERIAL PRIMARY KEY,
@@ -80,10 +89,9 @@ const connectToDatabase = async () => {
     setTimeout(connectToDatabase, 5000);
   }
 };
-
 connectToDatabase();
 
-
+// Setup multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadDir);
@@ -109,34 +117,7 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 } 
 });
 
-
-app.get("/health", (req, res) => {
-  res.status(200).json({ 
-    status: "OK",
-    database: client._connected ? "connected" : "disconnected",
-    timestamp: new Date().toISOString()
-  });
-});
-
-
-app.get("/employees", async (req, res) => {
-  try {
-    const result = await client.query("SELECT * FROM emp_onboarding ORDER BY created_at DESC");
-    res.status(200).json({
-      success: true,
-      data: result.rows,
-      count: result.rowCount
-    });
-  } catch (err) {
-    console.error("Error fetching employees:", err);
-    res.status(500).json({
-      success: false,
-      error: "Failed to fetch employees",
-      details: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-  }
-});
-
+// Backend API: Save Employee Data (POST)
 app.post("/save-employee", upload.fields([
   { name: "emp_experience_doc", maxCount: 1 },
   { name: "emp_ssc_doc", maxCount: 1 },
@@ -221,14 +202,6 @@ app.post("/save-employee", upload.fields([
       });
     }
 
-    if (err.code === '23505' && err.constraint === 'emp_onboarding_emp_email_key') {
-      return res.status(409).json({
-        success: false,
-        error: "Email already exists",
-        details: "An employee with this email already exists"
-      });
-    }
-
     res.status(500).json({ 
       success: false,
       error: "Database error",
@@ -237,27 +210,28 @@ app.post("/save-employee", upload.fields([
   }
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error("Global error handler:", err);
-  
-  if (err instanceof multer.MulterError) {
-    return res.status(400).json({
-      success: false,
-      error: "File upload error",
-      message: err.message
-    });
+// Frontend API: Fetch Employee Data (GET)
+app.get("/employees", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM emp_onboarding");  
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching data:", error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
-
-  res.status(500).json({
-    success: false,
-    error: "Internal server error",
-    message: err.message
-  });
 });
 
+// Health Check Route
+app.get("/health", (req, res) => {
+  res.status(200).json({ 
+    status: "OK",
+    timestamp: new Date().toISOString()
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
+
 

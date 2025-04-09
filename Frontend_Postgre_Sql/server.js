@@ -36,7 +36,7 @@ if (!fs.existsSync(uploadDir)) {
 const client = new Client({
   user: process.env.DB_USER || 'postgres',
   host: process.env.DB_HOST || 'localhost',
-  database: process.env.DB_NAME || 'new_employee_db',
+  database: process.env.DB_NAME || 'new_employees',
   password: process.env.DB_PASSWORD || 'Password@12345',
   port: process.env.DB_PORT || 5432,
 });
